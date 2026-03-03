@@ -201,9 +201,13 @@ function main() {
   };
 }
 
-try {
-  main();
-} catch (e) {
-  console.error('Error:', e.message);
-  process.exit(1);
+if (require.main === module) {
+  try {
+    main();
+  } catch (e) {
+    console.error('Error:', e.message);
+    process.exit(1);
+  }
 }
+
+module.exports = { main };

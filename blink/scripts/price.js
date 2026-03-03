@@ -22,7 +22,7 @@
  * Dependencies: None (uses Node.js built-in fetch)
  */
 
-const { getApiKey, getApiUrl, graphqlRequest, CONVERSION_QUERY } = require('./_blink_client');
+const { getApiKey, getApiUrl, graphqlRequest, CONVERSION_QUERY, decimalFromBaseOffset } = require('./_blink_client');
 
 // ── Queries ─────────────────────────────────────────────────
 
@@ -199,13 +199,24 @@ async function cmdHistory(range, apiKey, apiUrl) {
   const prices = data.btcPriceList;
 
   // Convert base/offset to readable USD prices
+  // Prefer formattedAmount when available; fall back to decimalFromBaseOffset
   const points = prices.map((p) => {
-    const priceUsd = p.price.base / Math.pow(10, p.price.offset) / 100; // offset gives cents
+    let btcPriceUsd;
+    if (p.price.formattedAmount) {
+      // formattedAmount is a string like "$94,321.50" — parse the numeric value
+      const parsed = parseFloat(p.price.formattedAmount.replace(/[^0-9.-]/g, ''));
+      btcPriceUsd = isNaN(parsed) ? null : Math.round(parsed * 100) / 100;
+    }
+    if (btcPriceUsd == null) {
+      // Fallback: base * 10^offset gives the price in the denominator currency units
+      // For USD, the API returns cents, so divide by 100 to get dollars
+      btcPriceUsd = Math.round(decimalFromBaseOffset(p.price.base, p.price.offset) / 100 * 100) / 100;
+    }
     return {
       timestamp: p.timestamp,
       date: new Date(p.timestamp * 1000).toISOString(),
-      btcPriceUsd: Math.round(priceUsd * 100) / 100,
-      formatted: p.price.formattedAmount || `$${(Math.round(priceUsd * 100) / 100).toLocaleString()}`,
+      btcPriceUsd,
+      formatted: p.price.formattedAmount || `$${btcPriceUsd.toLocaleString()}`,
     };
   });
 
@@ -311,7 +322,11 @@ async function main() {
   return cmdSatsToUsd(amountSats, apiKey, apiUrl);
 }
 
-main().catch((e) => {
-  console.error('Error:', e.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error('Error:', e.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { main };

@@ -69,12 +69,16 @@ async function main() {
   const apiKey = getApiKey();
   const apiUrl = getApiUrl();
 
-  // Get all wallets and try each one
+  // Get all wallets and try each one (auth errors propagate from getAllWallets)
   const wallets = await getAllWallets({ apiKey, apiUrl });
+  if (!wallets || wallets.length === 0) {
+    throw new Error('No wallets found on this account.');
+  }
   let invoice = null;
   let foundInWallet = null;
 
   for (const wallet of wallets) {
+    // graphqlRequest will throw on auth/network/HTTP errors — let those propagate.
     const data = await graphqlRequest({
       query: CHECK_INVOICE_QUERY,
       variables: { walletId: wallet.id, paymentHash },
@@ -82,7 +86,10 @@ async function main() {
       apiUrl,
     });
 
-    const walletResult = data.me.defaultAccount.walletById;
+    // walletById may be null if the wallet type doesn't match the query fragment
+    const walletResult = data.me?.defaultAccount?.walletById;
+    if (!walletResult) continue;
+
     const inv = walletResult.invoiceByPaymentHash;
     if (inv && inv.paymentHash) {
       invoice = inv;
@@ -113,7 +120,11 @@ async function main() {
   console.log(JSON.stringify(output, null, 2));
 }
 
-main().catch((e) => {
-  console.error('Error:', e.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error('Error:', e.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { main };

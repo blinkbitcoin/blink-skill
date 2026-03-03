@@ -2,16 +2,23 @@
   "name": "blink-claw-skill",
   "version": "1.0.0",
   "private": true,
-  "description": "Blink Lightning wallet CLI scripts for OpenClaw skill system",
+  "description": "Bitcoin Lightning wallet CLI for OpenClaw agents via the Blink API",
   "type": "commonjs",
+  "bin": {
+    "blink": "./bin/blink.js"
+  },
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "lint": "eslint blink/scripts/",
-    "lint:fix": "eslint --fix blink/scripts/",
-    "format": "prettier --write blink/scripts/",
-    "format:check": "prettier --check blink/scripts/"
+    "lint": "eslint blink/scripts/ bin/",
+    "lint:fix": "eslint --fix blink/scripts/ bin/",
+    "format": "prettier --write blink/scripts/ bin/",
+    "format:check": "prettier --check blink/scripts/ bin/",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "commander": "^14.0.3"
   },
   "devDependencies": {
     "eslint": "^9.0.0",
