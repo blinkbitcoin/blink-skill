@@ -1,12 +1,12 @@
 ---
 name: blink
 description: Bitcoin Lightning wallet for agents — balances, invoices, payments, BTC/USD swaps, QR codes, price conversion, and transaction history via the Blink API.
-version: 1.1.0
+version: 1.2.0
 metadata:
   oa:
     project: blink
     identifier: blink
-    version: "1.1.0"
+    version: "1.2.0"
     expires_at_unix: 1798761600
     capabilities:
       - http:outbound
@@ -40,7 +40,7 @@ Blink is a custodial Bitcoin Lightning wallet with a GraphQL API. Key concepts:
 - Requires `bash` and Node.js 18+.
 - Requires `BLINK_API_KEY` environment variable with appropriate scopes.
 - For WebSocket subscriptions: Node 22+ (native) or Node 20+ with `--experimental-websocket`.
-- Runtime dependency: `commander` (CLI framework). Install with `npm install` from the project root.
+- Zero runtime npm dependencies. Only Node.js built-in modules are used (`node:util`, `node:fs`, `node:path`, `node:child_process`).
 
 Use this skill for concrete wallet operations, not generic Lightning theory.
 
@@ -48,7 +48,7 @@ Use this skill for concrete wallet operations, not generic Lightning theory.
 
 ### 1. Install dependencies and link the CLI
 
-From the `blink-claw-skill` project root:
+From the `blink-skill` project root:
 
 ```bash
 npm install
