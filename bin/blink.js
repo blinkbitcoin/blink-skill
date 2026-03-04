@@ -316,6 +316,52 @@ program
     main();
   });
 
+// ── swap-quote ───────────────────────────────────────────────────────────────
+
+program
+  .command('swap-quote')
+  .description('Get a BTC <-> USD conversion quote (no funds moved)')
+  .argument('<direction>', 'Swap direction: btc-to-usd or usd-to-btc (aliases: sell-btc, buy-usd, sell-usd, buy-btc)')
+  .argument('<amount>', 'Amount to swap (positive integer)', parsePositiveInt)
+  .option('--unit <unit>', 'Amount unit: sats or cents (default depends on direction)')
+  .option('--ttl-seconds <seconds>', 'Quote TTL in seconds', parsePositiveInt, 60)
+  .option('--immediate', 'Flag the quote for immediate execution')
+  .addHelpText('after', '\nExamples:\n  blink swap-quote btc-to-usd 1000\n  blink swap-quote usd-to-btc 500 --unit cents\n  blink swap-quote btc-to-usd 1000 --immediate --ttl-seconds 45')
+  .action(async (direction, amount, opts) => {
+    const argv = [direction, String(amount)];
+    if (opts.unit) argv.push('--unit', opts.unit);
+    if (opts.ttlSeconds !== undefined) argv.push('--ttl-seconds', String(opts.ttlSeconds));
+    if (opts.immediate) argv.push('--immediate');
+    setProcessArgv(argv);
+    const { main } = require(path.join(scriptsDir, 'swap_quote.js'));
+    await main();
+  });
+
+// ── swap-execute ─────────────────────────────────────────────────────────────
+
+program
+  .command('swap-execute')
+  .description('Execute a BTC <-> USD wallet conversion (CAUTION: moves real funds without --dry-run)')
+  .argument('<direction>', 'Swap direction: btc-to-usd or usd-to-btc (aliases: sell-btc, buy-usd, sell-usd, buy-btc)')
+  .argument('<amount>', 'Amount to swap (positive integer)', parsePositiveInt)
+  .option('--unit <unit>', 'Amount unit: sats or cents (default depends on direction)')
+  .option('--dry-run', 'Show what would be swapped without executing')
+  .option('--memo <text>', 'Optional memo attached to the transaction')
+  .option('--ttl-seconds <seconds>', 'Quote TTL in seconds', parsePositiveInt, 60)
+  .option('--immediate', 'Flag the quote for immediate execution')
+  .addHelpText('after', '\nExamples:\n  blink swap-execute btc-to-usd 2000\n  blink swap-execute usd-to-btc 500 --unit cents\n  blink swap-execute btc-to-usd 2000 --dry-run\n  blink swap-execute btc-to-usd 2000 --memo "Monthly DCA"')
+  .action(async (direction, amount, opts) => {
+    const argv = [direction, String(amount)];
+    if (opts.unit) argv.push('--unit', opts.unit);
+    if (opts.ttlSeconds !== undefined) argv.push('--ttl-seconds', String(opts.ttlSeconds));
+    if (opts.immediate) argv.push('--immediate');
+    if (opts.dryRun) argv.push('--dry-run');
+    if (opts.memo) argv.push('--memo', opts.memo);
+    setProcessArgv(argv);
+    const { main } = require(path.join(scriptsDir, 'swap_execute.js'));
+    await main();
+  });
+
 // ── Parse ────────────────────────────────────────────────────────────────────
 
 program.parseAsync().catch(handleError);

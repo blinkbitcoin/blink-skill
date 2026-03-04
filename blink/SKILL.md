@@ -1,12 +1,12 @@
 ---
 name: blink
-description: Bitcoin Lightning wallet for agents — balances, invoices, payments, QR codes, price conversion, and transaction history via the Blink API.
-version: 1.0.0
+description: Bitcoin Lightning wallet for agents — balances, invoices, payments, BTC/USD swaps, QR codes, price conversion, and transaction history via the Blink API.
+version: 1.1.0
 metadata:
   oa:
     project: blink
     identifier: blink
-    version: "1.0.0"
+    version: "1.1.0"
     expires_at_unix: 1798761600
     capabilities:
       - http:outbound
@@ -100,6 +100,7 @@ The API key sniffing works the same way — no `source ~/.profile` prefix needed
 1. Pick the operation path first:
 - Receive payments (invoice creation, QR codes, payment monitoring).
 - Send payments (invoice pay, Lightning Address, LNURL, BTC or USD wallet).
+- Swap between wallets (BTC <-> USD internal conversion).
 - Read-only queries (balance, transactions, price, account info).
 
 2. Configure API access from [blink-api-and-auth](references/blink-api-and-auth.md):
@@ -119,7 +120,13 @@ The API key sniffing works the same way — no `source ~/.profile` prefix needed
 - Generate QR code and send to payer.
 - Monitor via auto-subscribe, polling, or standalone subscription.
 
-5. Apply safety constraints:
+5. For swapping between wallets, follow [swap-operations](references/swap-operations.md):
+- Quote first with `blink swap-quote`.
+- Review quote terms (amountIn/amountOut, exchange rate).
+- Execute with `blink swap-execute` (use `--dry-run` first).
+- Verify settlement from `postBalance`/`balanceDelta`.
+
+6. Apply safety constraints:
 - Use minimum API key scopes for the task.
 - Test on staging before production.
 - Always check balance before sending.
@@ -142,6 +149,12 @@ blink pay-invoice lnbc1000n1... --wallet USD
 
 # Get current BTC/USD price
 blink price
+
+# Swap 1000 sats to USD
+blink swap-execute btc-to-usd 1000
+
+# Get swap quote without executing
+blink swap-quote usd-to-btc 500 --unit cents
 ```
 
 ## Core Commands
@@ -327,6 +340,8 @@ Streams account updates in real time. Each event is output as a JSON line (NDJSO
 | Pay LNURL | `mutation lnurlPaymentSend` | Write |
 | Fee estimate (BTC) | `mutation lnInvoiceFeeProbe` | Read |
 | Fee estimate (USD) | `mutation lnUsdInvoiceFeeProbe` | Read |
+| Swap BTC→USD | `mutation intraLedgerPaymentSend` | Write |
+| Swap USD→BTC | `mutation intraLedgerUsdPaymentSend` | Write |
 | Transactions | `query transactions` | Read |
 | Price / convert | `query currencyConversionEstimation` | **None (public)** |
 | Price history | `query btcPriceList` | **None (public)** |
@@ -574,12 +589,118 @@ blink price --usd 5.00
 # → 7350 sats
 ```
 
+### Swap BTC to USD (internal conversion)
+```bash
+# 1. Get a quote first
+blink swap-quote btc-to-usd 2000
+# → Shows expected conversion terms (amountIn: 2000 sats, amountOut: ~136 cents)
+
+# 2. Execute the swap (dry-run first)
+blink swap-execute btc-to-usd 2000 --dry-run
+# → Shows what would happen without moving funds
+
+# 3. Execute for real
+blink swap-execute btc-to-usd 2000
+# → Converts 2000 sats from BTC wallet to ~$1.36 in USD wallet
+
+# 4. Verify balances
+blink balance
+```
+
+### Swap USD to BTC (internal conversion)
+```bash
+# Convert $5.00 (500 cents) to BTC
+blink swap-execute usd-to-btc 500 --unit cents
+# → Converts 500 cents from USD wallet to ~7350 sats in BTC wallet
+```
+
 ### Check price history
 ```bash
 # Get BTC price over the last 24 hours
 blink price --history ONE_DAY
 # Get BTC price over the last month
 blink price --history ONE_MONTH
+```
+
+## Swap Commands (BTC <-> USD)
+
+Swap between your BTC and USD wallets using Blink's intra-ledger transfer. This is an internal conversion (not a Lightning payment), so there are no routing fees — only minor rounding spread.
+
+### Get Swap Quote
+```bash
+blink swap-quote <direction> <amount> [--unit sats|cents] [--ttl-seconds N] [--immediate]
+```
+
+Estimates the conversion terms without moving funds. Returns wallet balances, exchange rate snapshot, and the expected `amountIn`/`amountOut` in the output JSON.
+
+- `direction` — `btc-to-usd` or `usd-to-btc` (aliases: `sell-btc`, `buy-usd`, `sell-usd`, `buy-btc`)
+- `amount` — positive integer amount to convert
+- `--unit sats|cents` — unit of the amount (defaults to `sats` for btc-to-usd, `cents` for usd-to-btc)
+- `--ttl-seconds N` — quote TTL in seconds (default: 60)
+- `--immediate` — flag the quote for immediate execution
+
+**No API key scope beyond Read is required for quotes.**
+
+### Execute Swap
+```bash
+blink swap-execute <direction> <amount> [--unit sats|cents] [--dry-run] [--memo "text"]
+```
+
+Executes a real BTC <-> USD conversion. First generates a quote, then performs the intra-ledger transfer. Returns pre/post balances, delta, quote terms, and transaction ID.
+
+- `direction` — same as swap-quote
+- `amount` — positive integer amount to convert
+- `--unit sats|cents` — same as swap-quote
+- `--dry-run` — show what would be swapped without executing the transfer
+- `--memo "text"` — optional memo attached to the transaction
+
+**CAUTION: Without `--dry-run`, this moves real funds between wallets. Requires Write scope.**
+
+### Swap Output Examples
+
+**Quote output:**
+```json
+{
+  "event": "swap_quote",
+  "dryRun": true,
+  "direction": "BTC_TO_USD",
+  "preBalance": {
+    "btcWalletId": "abc123",
+    "usdWalletId": "def456",
+    "btcBalanceSats": 50000,
+    "usdBalanceCents": 1500,
+    "usdBalanceFormatted": "$15.00"
+  },
+  "quote": {
+    "quoteId": "blink-swap-1709424000-123456",
+    "direction": "BTC_TO_USD",
+    "requestedAmount": { "value": 1000, "unit": "sats" },
+    "amountIn": { "value": 1000, "unit": "sats" },
+    "amountOut": { "value": 68, "unit": "cents" },
+    "feeSats": 0,
+    "feeBps": 0,
+    "rateSnapshot": { "satsPerDollar": 1470 },
+    "executionPath": "blink:intraLedgerPaymentSend"
+  }
+}
+```
+
+**Execution output:**
+```json
+{
+  "event": "swap_execution",
+  "dryRun": false,
+  "direction": "BTC_TO_USD",
+  "status": "SUCCESS",
+  "succeeded": true,
+  "preBalance": { "btcBalanceSats": 50000, "usdBalanceCents": 1500 },
+  "postBalance": { "btcBalanceSats": 49000, "usdBalanceCents": 1567 },
+  "balanceDelta": { "btcDeltaSats": -1000, "usdDeltaCents": 67 },
+  "execution": {
+    "path": "blink:intraLedgerPaymentSend",
+    "transactionId": "tx_abc123"
+  }
+}
 ```
 
 ## Security Notes
@@ -597,6 +718,7 @@ blink price --history ONE_MONTH
 - [blink-api-and-auth](references/blink-api-and-auth.md): API endpoints, authentication, scopes, staging/testnet configuration, and error handling.
 - [payment-operations](references/payment-operations.md): send workflows, BTC vs USD wallet selection, fee probing, and safety guardrails.
 - [invoice-lifecycle](references/invoice-lifecycle.md): invoice creation, two-phase output parsing, monitoring strategies, QR generation, and expiration handling.
+- [swap-operations](references/swap-operations.md): BTC <-> USD internal conversion, quote/execute workflow, rounding behavior, and effective cost formulas.
 
 ## Files
 
@@ -614,3 +736,6 @@ blink price --history ONE_MONTH
 - `{baseDir}/scripts/account_info.js` — Show account info and limits
 - `{baseDir}/scripts/subscribe_invoice.js` — Subscribe to invoice payment status (standalone)
 - `{baseDir}/scripts/subscribe_updates.js` — Subscribe to realtime account updates
+- `{baseDir}/scripts/_swap_common.js` — Shared swap helpers (quote estimation, execution, wallet pair management)
+- `{baseDir}/scripts/swap_quote.js` — Get BTC <-> USD conversion quote
+- `{baseDir}/scripts/swap_execute.js` — Execute BTC <-> USD wallet conversion
