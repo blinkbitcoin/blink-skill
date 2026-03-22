@@ -457,6 +457,24 @@ async function main() {
         data = body;
       }
 
+      if (res.status !== 200) {
+        // Cached token rejected or server unreachable — emit l402_error so the
+        // caller can distinguish a successful cached-token hit from a failure.
+        const output = {
+          event: 'l402_error',
+          url: args.url,
+          canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
+          status: res.status,
+          tokenReused: true,
+          satoshis: cached.satoshis ?? null,
+          message: `Cached token returned status ${res.status}. Token may be expired or server is unreachable.`,
+          data,
+        };
+        console.log(JSON.stringify(output, null, 2));
+        process.exit(1);
+        return; // unreachable in production; guards against mocked process.exit in tests
+      }
+
       const output = {
         event: 'l402_paid',
         url: args.url,
@@ -503,6 +521,21 @@ async function main() {
 
   if (initialRes.status !== 402) {
     const body = await initialRes.text().catch(() => '');
+    // On --dry-run, emit structured JSON instead of throwing so the caller
+    // always gets machine-readable output even when the server is down or
+    // returns an unexpected status (e.g. 403/503 during an outage).
+    if (args.dryRun) {
+      const output = {
+        event: 'l402_dry_run',
+        url: args.url,
+        canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
+        status: initialRes.status,
+        error: `Unexpected status ${initialRes.status}: ${body.slice(0, 200)}`,
+        message: 'Dry-run: server did not return 402. No payment would be made.',
+      };
+      console.log(JSON.stringify(output, null, 2));
+      return;
+    }
     throw new Error(`Unexpected status ${initialRes.status}: ${body.slice(0, 200)}`);
   }
 

@@ -591,6 +591,98 @@ describe('l402_pay dry-run flow', () => {
       }
     }
   });
+
+  it('--dry-run on non-402 server response emits l402_dry_run with error field (no throw)', async () => {
+    // Bug fix: previously threw an unhandled exception and exited with no JSON output.
+    // Now must emit structured l402_dry_run JSON with error field.
+    global.fetch = async () => ({
+      status: 403,
+      headers: { get: () => null },
+      text: async () => 'Forbidden',
+    });
+
+    process.argv = ['node', 'l402_pay.js', 'https://api.example.com/resource', '--dry-run', '--no-store'];
+    const { main } = require(payPath);
+    await main(); // must not throw
+
+    const out = JSON.parse(stdoutLines.join('\n'));
+    assert.equal(out.event, 'l402_dry_run', 'must emit l402_dry_run even on non-402 response');
+    assert.equal(out.status, 403);
+    assert.ok(typeof out.error === 'string' && out.error.length > 0, 'must include error string');
+    assert.equal(out.url, 'https://api.example.com/resource');
+  });
+
+  it('--dry-run --probe on non-402 server response emits l402_dry_run with error field (no throw)', async () => {
+    // Bug fix: --probe + --dry-run hit the same non-402 throw; verify both flags together are safe.
+    global.fetch = async () => ({
+      status: 503,
+      headers: { get: () => null },
+      text: async () => 'Service Unavailable',
+    });
+
+    process.argv = ['node', 'l402_pay.js', 'https://api.example.com/resource', '--dry-run', '--probe', '--no-store'];
+    const { main } = require(payPath);
+    await main(); // must not throw
+
+    const out = JSON.parse(stdoutLines.join('\n'));
+    assert.equal(out.event, 'l402_dry_run', 'must emit l402_dry_run even when --probe is also set');
+    assert.equal(out.status, 503);
+    assert.ok(typeof out.error === 'string' && out.error.length > 0, 'must include error string');
+  });
+
+  it('cached token reuse on non-200 server response emits l402_error (not l402_paid)', async () => {
+    // Bug fix: previously emitted l402_paid even when the server returned 403 with error HTML.
+    // Now must emit l402_error with status, message, and data.
+    const storeDir = path.join(os.homedir(), '.blink');
+    const storeFile = path.join(storeDir, 'l402-tokens.json');
+    fs.mkdirSync(storeDir, { recursive: true });
+    const previousStore = fs.existsSync(storeFile) ? fs.readFileSync(storeFile, 'utf8') : null;
+    const cachedEntry = {
+      macaroon: 'STALE_MAC==',
+      preimage: 'stalepreimage',
+      satoshis: 100,
+      expiresAt: new Date(Date.now() + 86400_000).toISOString(),
+    };
+    fs.writeFileSync(storeFile, JSON.stringify({ 'api.example.com': cachedEntry }));
+
+    let exitCode = null;
+    const originalExit = process.exit;
+    process.exit = (code) => {
+      exitCode = code;
+    };
+
+    try {
+      // Mock: server returns 403 even with Authorization header (stale/rejected token)
+      global.fetch = async (_url, opts) => {
+        if (opts && opts.headers && opts.headers.Authorization) {
+          return {
+            status: 403,
+            headers: { get: () => null },
+            text: async () => '<html>403 Forbidden</html>',
+          };
+        }
+        return { status: 402, headers: { get: () => null }, text: async () => '' };
+      };
+
+      process.argv = ['node', 'l402_pay.js', 'https://api.example.com/resource'];
+      const { main } = require(payPath);
+      await main();
+
+      const out = JSON.parse(stdoutLines.join('\n'));
+      assert.equal(out.event, 'l402_error', 'must emit l402_error when cached token gets non-200');
+      assert.equal(out.status, 403);
+      assert.equal(out.tokenReused, true);
+      assert.ok(typeof out.message === 'string' && out.message.includes('403'), 'message must mention the status');
+      assert.equal(exitCode, 1, 'must exit with code 1 on error');
+    } finally {
+      process.exit = originalExit;
+      if (previousStore === null) {
+        fs.unlinkSync(storeFile);
+      } else {
+        fs.writeFileSync(storeFile, previousStore);
+      }
+    }
+  });
 });
 
 // ── fetchPreimageByPaymentHash (l402_pay.js) ──────────────────────────────────
