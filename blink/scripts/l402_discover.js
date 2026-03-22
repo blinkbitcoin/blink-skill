@@ -71,6 +71,34 @@ function parseL402ProtocolBody(body) {
 }
 
 /**
+ * Resolve the canonical URL by following any HTTP redirects.
+ *
+ * Sends a HEAD request with redirect:'follow' and returns response.url —
+ * the final URL after the redirect chain. Falls back gracefully to the
+ * original URL on any error (network failure, 405 Method Not Allowed, etc.).
+ *
+ * @param {string} url
+ * @param {number} [timeoutMs=10000]
+ * @returns {Promise<string>}
+ */
+async function resolveCanonicalUrl(url, timeoutMs = 10_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'HEAD',
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    return res.url || url;
+  } catch {
+    return url;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Fetch payment details from l402-protocol.org endpoint.
  * POST to payment_request_url to retrieve the Lightning invoice.
  *
@@ -145,12 +173,18 @@ function decodeBolt11AmountSats(invoice) {
   //   (none)      → whole BTC  → 1e8 sats per unit
   const BTC_TO_SAT = 100_000_000;
   switch (multiplier) {
-    case '':  return amount * BTC_TO_SAT;
-    case 'm': return Math.round(amount * BTC_TO_SAT * 0.001);
-    case 'u': return Math.round(amount * BTC_TO_SAT * 0.000_001);
-    case 'n': return Math.round(amount * BTC_TO_SAT * 0.000_000_001);
-    case 'p': return Math.round(amount * BTC_TO_SAT * 0.000_000_000_001);
-    default:  return null;
+    case '':
+      return amount * BTC_TO_SAT;
+    case 'm':
+      return Math.round(amount * BTC_TO_SAT * 0.001);
+    case 'u':
+      return Math.round(amount * BTC_TO_SAT * 0.000_001);
+    case 'n':
+      return Math.round(amount * BTC_TO_SAT * 0.000_000_001);
+    case 'p':
+      return Math.round(amount * BTC_TO_SAT * 0.000_000_000_001);
+    default:
+      return null;
   }
 }
 
@@ -197,12 +231,19 @@ async function main() {
 
   console.error(`Probing: ${args.url}`);
 
+  // Resolve canonical URL (follow any HTTP redirects) so the probe always
+  // hits the final endpoint and reports the correct URL.
+  const canonicalUrl = await resolveCanonicalUrl(args.url);
+  if (canonicalUrl !== args.url) {
+    console.error(`Resolved redirect: ${args.url} → ${canonicalUrl}`);
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
 
   let res;
   try {
-    res = await fetch(args.url, {
+    res = await fetch(canonicalUrl, {
       method: args.method,
       headers: {
         Accept: 'application/json',
@@ -221,11 +262,29 @@ async function main() {
     const body = await res.text().catch(() => '');
     const output = {
       url: args.url,
+      canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
       l402_detected: false,
       status: res.status,
-      message: res.status === 200
-        ? 'No L402 protection detected — resource returned 200 OK.'
-        : `Unexpected status ${res.status}. Not an L402 endpoint.`,
+      message:
+        res.status === 200
+          ? 'No L402 protection detected — resource returned 200 OK.'
+          : `Unexpected status ${res.status}. Not an L402 endpoint.`,
+      body: body.length <= 500 ? body : body.slice(0, 500) + '…',
+    };
+    console.log(JSON.stringify(output, null, 2));
+    return;
+  }
+
+  if (res.status !== 402) {
+    const body = await res.text().catch(() => '');
+    const output = {
+      url: args.url,
+      l402_detected: false,
+      status: res.status,
+      message:
+        res.status === 200
+          ? 'No L402 protection detected — resource returned 200 OK.'
+          : `Unexpected status ${res.status}. Not an L402 endpoint.`,
       body: body.length <= 500 ? body : body.slice(0, 500) + '…',
     };
     console.log(JSON.stringify(output, null, 2));
@@ -243,6 +302,7 @@ async function main() {
     const satoshis = decodeBolt11AmountSats(lightningLabs.invoice);
     const output = {
       url: args.url,
+      canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
       l402_detected: true,
       format: 'lightning-labs',
       macaroon: lightningLabs.macaroon,
@@ -284,6 +344,7 @@ async function main() {
 
     const output = {
       url: args.url,
+      canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
       l402_detected: true,
       format: 'l402-protocol',
       version: l402proto.version,
@@ -302,6 +363,7 @@ async function main() {
   console.error('Warning: 402 received but could not parse L402 challenge.');
   const output = {
     url: args.url,
+    canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
     l402_detected: true,
     format: 'unknown',
     wwwAuthenticate: wwwAuth || null,
@@ -323,5 +385,6 @@ module.exports = {
   parseL402ProtocolBody,
   decodeBolt11AmountSats,
   fetchL402ProtocolInvoice,
+  resolveCanonicalUrl,
   main,
 };

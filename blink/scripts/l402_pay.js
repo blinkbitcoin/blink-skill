@@ -190,6 +190,45 @@ async function fetchWithTimeout(url, options, timeoutMs = 15_000) {
 }
 
 /**
+ * Resolve the canonical URL by following any HTTP redirects.
+ *
+ * Sends a HEAD request with redirect:'follow' and returns response.url —
+ * the final URL after the redirect chain. This prevents two failure modes:
+ *
+ *   1. Token cached under the wrong domain (e.g. www.satring.com instead of
+ *      satring.com) when the user supplies a URL that redirects.
+ *   2. L402 Authorization header stripped by fetch on the retry request
+ *      because the WHATWG Fetch spec forbids forwarding Authorization across
+ *      cross-host redirects (redirect-fetch step 12).
+ *
+ * Falls back gracefully to the original URL on any error (network failure,
+ * 405 Method Not Allowed, etc.) so existing behaviour is preserved.
+ *
+ * @param {string} url
+ * @param {number} [timeoutMs=10000]
+ * @returns {Promise<string>}  The canonical URL (post-redirect), or the
+ *                             original URL if resolution fails.
+ */
+async function resolveCanonicalUrl(url, timeoutMs = 10_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'HEAD',
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    // res.url is the final URL after all redirects; fall back to input if empty.
+    return res.url || url;
+  } catch {
+    // Network error, timeout, or server that rejects HEAD — degrade gracefully.
+    return url;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Extract the domain (hostname) from a URL string.
  * @param {string} url
  * @returns {string}
@@ -304,11 +343,24 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (!args.url) {
-    console.error('Usage: node l402_pay.js <url> [--wallet BTC|USD] [--max-amount <sats>] [--dry-run] [--no-store] [--force]');
+    console.error(
+      'Usage: node l402_pay.js <url> [--wallet BTC|USD] [--max-amount <sats>] [--dry-run] [--no-store] [--force]',
+    );
     process.exit(1);
   }
 
-  const domain = extractDomain(args.url);
+  // ── Resolve canonical URL (follow any HTTP redirects) ──
+  // This must happen before the token cache lookup and before any fetch so
+  // that: (a) the cache key is the canonical domain, and (b) the L402
+  // Authorization header is not stripped by fetch when following redirects
+  // from a non-canonical URL (WHATWG Fetch spec forbids forwarding
+  // Authorization across cross-host redirects).
+  const canonicalUrl = await resolveCanonicalUrl(args.url);
+  if (canonicalUrl !== args.url) {
+    console.error(`Resolved redirect: ${args.url} → ${canonicalUrl}`);
+  }
+
+  const domain = extractDomain(canonicalUrl);
 
   // ── Check token store first ──
   if (!args.noStore && !args.force) {
@@ -318,7 +370,7 @@ async function main() {
       console.error('Retrying request with cached token...');
 
       const authHeader = `L402 ${cached.macaroon}:${cached.preimage}`;
-      const res = await fetchWithTimeout(args.url, {
+      const res = await fetchWithTimeout(canonicalUrl, {
         method: args.method,
         headers: { Accept: 'application/json', Authorization: authHeader, ...args.headers },
         ...(args.body ? { body: args.body } : {}),
@@ -326,11 +378,16 @@ async function main() {
 
       const body = await res.text();
       let data;
-      try { data = JSON.parse(body); } catch { data = body; }
+      try {
+        data = JSON.parse(body);
+      } catch {
+        data = body;
+      }
 
       const output = {
         event: 'l402_paid',
         url: args.url,
+        canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
         status: res.status,
         tokenReused: true,
         satoshis: cached.satoshis ?? null,
@@ -342,22 +399,27 @@ async function main() {
   }
 
   // ── Initial request ──
-  console.error(`Requesting: ${args.url}`);
+  console.error(`Requesting: ${canonicalUrl}`);
   const reqOptions = {
     method: args.method,
     headers: { Accept: 'application/json', ...args.headers },
     ...(args.body ? { body: args.body } : {}),
   };
 
-  const initialRes = await fetchWithTimeout(args.url, reqOptions);
+  const initialRes = await fetchWithTimeout(canonicalUrl, reqOptions);
 
   if (initialRes.status === 200) {
     const body = await initialRes.text();
     let data;
-    try { data = JSON.parse(body); } catch { data = body; }
+    try {
+      data = JSON.parse(body);
+    } catch {
+      data = body;
+    }
     const output = {
       event: 'l402_not_required',
       url: args.url,
+      canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
       status: 200,
       message: 'Resource returned 200 OK — no payment required.',
       data,
@@ -394,6 +456,7 @@ async function main() {
     const output = {
       event: 'l402_budget_exceeded',
       url: args.url,
+      canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
       satoshis,
       maxAmount: args.maxAmount,
       message: `Payment of ${satoshis} sats exceeds --max-amount of ${args.maxAmount} sats. Aborting.`,
@@ -407,6 +470,7 @@ async function main() {
     const output = {
       event: 'l402_dry_run',
       url: args.url,
+      canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
       format: challenge.format,
       invoice: challenge.invoice,
       satoshis,
@@ -503,7 +567,7 @@ async function main() {
   console.error('Retrying request with L402 authorization...');
   const authHeader = `L402 ${macaroon}:${preimage}`;
 
-  const retryRes = await fetchWithTimeout(args.url, {
+  const retryRes = await fetchWithTimeout(canonicalUrl, {
     method: args.method,
     headers: {
       Accept: 'application/json',
@@ -515,11 +579,16 @@ async function main() {
 
   const retryBody = await retryRes.text();
   let retryData;
-  try { retryData = JSON.parse(retryBody); } catch { retryData = retryBody; }
+  try {
+    retryData = JSON.parse(retryBody);
+  } catch {
+    retryData = retryBody;
+  }
 
   const output = {
     event: 'l402_paid',
     url: args.url,
+    canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
     format: challenge.format,
     paymentStatus: payResult.status,
     walletId: wallet.id,
@@ -561,4 +630,10 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main, resolveL402Challenge, derivePreimageFromInvoice, fetchPreimageByPaymentHash };
+module.exports = {
+  main,
+  resolveCanonicalUrl,
+  resolveL402Challenge,
+  derivePreimageFromInvoice,
+  fetchPreimageByPaymentHash,
+};
