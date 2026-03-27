@@ -1,39 +1,134 @@
-# blink-claw-skill
+# Blink Lightning CLI
 
-Blink Lightning wallet skill for OpenClaw agents.
+Bitcoin Lightning wallet for the command line — zero runtime npm dependencies, Node.js 18+ built-ins only.
 
-## Contents
+21 commands for wallet management, payments, invoices, swaps, and L402 paywall operations (both consumer and producer). Designed for humans and AI agents alike.
 
-- `blink/SKILL.md` — Skill manifest and docs
-- `blink/scripts/` — Self-contained Node.js CLI scripts
+## Highlights
 
-## Requirements
+- **Zero runtime dependencies** — only Node.js 18+ built-ins (`node:crypto`, `node:fs`, `node:util`, etc.)
+- **21 commands** — balance, payments, invoices, QR codes, swaps, L402 consumer + producer
+- **L402 paywall toolkit** — create Lightning paywalls (producer) and pay them (consumer)
+- **207 tests**, 0 failing — `node:test` framework, no test library dependencies
+- **JSON-first output** — structured JSON to stdout, status messages to stderr
+- **AI-agent native** — published on [ClawHub](https://clawhub.com) for OpenClaw/Hermes agents; also works with any LLM or human
 
-- Node.js 18+ (built-in `fetch`)
-- Blink API key for wallet operations (price queries are public)
-
-## Setup
+## Quick Start
 
 ```bash
 export BLINK_API_KEY="blink_..."
+
+blink balance                                          # wallet balances + USD estimates
+blink create-invoice 1000 "Coffee payment"             # create a Lightning invoice
+blink pay-invoice lnbc...                              # pay a Lightning invoice
+blink price 50000                                      # convert sats to USD
+blink l402-challenge --amount 100 --expiry 3600        # create an L402 paywall challenge
+blink l402-verify --token <macaroon>:<preimage>        # verify a client's payment proof
 ```
 
-(Optional) staging:
+## Commands
+
+### Wallet
+
+| Command              | Description                                                                 |
+| -------------------- | --------------------------------------------------------------------------- |
+| `blink balance`      | Show BTC and USD wallet balances with pre-computed USD estimates            |
+| `blink account-info` | Show account level, spending limits, and wallet summary                     |
+| `blink transactions` | List recent wallet transactions with pagination                             |
+| `blink price`        | BTC/USD price, currency conversion, and price history (no API key required) |
+
+### Payments
+
+| Command                             | Description                                                     |
+| ----------------------------------- | --------------------------------------------------------------- |
+| `blink pay-invoice <bolt11>`        | Pay a BOLT-11 Lightning invoice                                 |
+| `blink pay-lnaddress <addr> <sats>` | Send sats to a Lightning Address (user@domain)                  |
+| `blink pay-lnurl <lnurl> <sats>`    | Send sats to a raw LNURL payRequest string                      |
+| `blink fee-probe <bolt11>`          | Estimate the fee for paying a Lightning invoice without sending |
+
+### Invoices
+
+| Command                                   | Description                                                      |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| `blink create-invoice <sats> [memo]`      | Create a BTC Lightning invoice with optional auto-subscribe      |
+| `blink create-invoice-usd <cents> [memo]` | Create a USD-denominated Lightning invoice                       |
+| `blink check-invoice <hash>`              | Check payment status of a Lightning invoice by payment hash      |
+| `blink subscribe-invoice <bolt11>`        | Watch an invoice for payment via WebSocket                       |
+| `blink subscribe-updates`                 | Stream account activity updates via WebSocket (NDJSON)           |
+| `blink qr <bolt11>`                       | Generate a QR code for a Lightning invoice (terminal + PNG file) |
+
+### Swaps
+
+| Command                                   | Description                                         |
+| ----------------------------------------- | --------------------------------------------------- |
+| `blink swap-quote <direction> <amount>`   | Get a BTC <-> USD conversion quote (no funds moved) |
+| `blink swap-execute <direction> <amount>` | Execute a BTC <-> USD wallet conversion             |
+
+### L402 Consumer (pay paywalls)
+
+| Command                         | Description                                                  |
+| ------------------------------- | ------------------------------------------------------------ |
+| `blink l402-discover <url>`     | Probe a URL for L402 payment requirements (no payment made)  |
+| `blink l402-pay <url>`          | Fetch an L402-gated resource, paying automatically via Blink |
+| `blink l402-store <subcommand>` | Manage the L402 token cache (~/.blink/l402-tokens.json)      |
+
+### L402 Producer (create paywalls)
+
+| Command                                 | Description                                                  |
+| --------------------------------------- | ------------------------------------------------------------ |
+| `blink l402-challenge --amount <sats>`  | Create an L402 payment challenge (invoice + signed macaroon) |
+| `blink l402-verify --token <mac>:<pre>` | Verify an L402 payment token (preimage + HMAC + caveats)     |
+
+## Installation
+
+### Standalone
+
+```bash
+git clone https://github.com/blinkbitcoin/blink-skills.git
+cd blink-skills
+export BLINK_API_KEY="blink_..."
+./bin/blink.js balance
+```
+
+Or add to your PATH:
+
+```bash
+export PATH="$PATH:$(pwd)/bin"
+blink balance
+```
+
+### OpenClaw / Hermes Agents
+
+Published on ClawHub as `blink@1.5.0`. The full skill manifest and agent instructions are in [`blink/SKILL.md`](blink/SKILL.md).
+
+### With blink-mcp
+
+For MCP-native clients (Claude Desktop, Cursor, etc.), see [blink-mcp](https://github.com/blinkbitcoin/blink-mcp). The CLI is typically 80-100x more token-efficient per agent session than MCP tool calls.
+
+## Configuration
+
+| Variable              | Required         | Description                                                                                                 |
+| --------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| `BLINK_API_KEY`       | Yes (wallet ops) | Blink API key (`blink_...`). Not needed for `price`.                                                        |
+| `BLINK_API_URL`       | No               | Override API endpoint. Default: `https://api.blink.sv/graphql`                                              |
+| `BLINK_L402_ROOT_KEY` | No               | 64-char hex root key for L402 producer HMAC signing. Auto-generated to `~/.blink/l402-root-key` if not set. |
+
+**Staging / testnet:**
+
 ```bash
 export BLINK_API_URL="https://api.staging.blink.sv/graphql"
 ```
 
-## Quick start
+## Testing
 
 ```bash
-# Balance (includes USD estimate)
-node blink/scripts/balance.js
-
-# Create BTC invoice
-node blink/scripts/create_invoice.js 1000 "Payment"
-
-# Convert sats to USD
-node blink/scripts/price.js 1760
+npm test    # 207 tests, node:test framework, zero test dependencies
 ```
 
-For full usage and command details, see `blink/SKILL.md`.
+## Documentation
+
+Full command reference, output examples, security model, and agent instructions: [`blink/SKILL.md`](blink/SKILL.md)
+
+## License
+
+MIT
