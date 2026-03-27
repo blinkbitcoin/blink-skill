@@ -56,9 +56,17 @@ function main() {
 
   if (subcommand === 'set') {
     if (args.includes('--off')) {
-      writeConfig({});
-      console.error('Budget limits removed.');
-      console.log(JSON.stringify({ message: 'Budget limits removed. No spending limits enforced.' }, null, 2));
+      // Preserve allowlist when removing limits
+      let existing = {};
+      try {
+        const fs = require('node:fs');
+        const content = fs.readFileSync(CONFIG_FILE, 'utf8');
+        existing = JSON.parse(content);
+      } catch { /* no existing config */ }
+      const preserved = existing.allowlist ? { allowlist: existing.allowlist } : {};
+      writeConfig(preserved);
+      console.error('Budget limits removed (allowlist preserved).');
+      console.log(JSON.stringify({ message: 'Budget limits removed. No spending limits enforced. Allowlist preserved.' }, null, 2));
       return;
     }
 

@@ -17,6 +17,7 @@ metadata:
     requires:
       env: [BLINK_API_KEY]
       bins: [node]
+    optionalEnv: [BLINK_API_URL, BLINK_WS_URL, BLINK_L402_ROOT_KEY, BLINK_BUDGET_HOURLY_SATS, BLINK_BUDGET_DAILY_SATS, BLINK_L402_ALLOWED_DOMAINS]
     primaryEnv: BLINK_API_KEY
     emoji: '⚡'
     homepage: 'https://github.com/blinkbitcoin/blink-skill'

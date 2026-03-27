@@ -23,7 +23,7 @@ const os = require('node:os');
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 
-const BLINK_DIR = process.env._BLINK_DIR_OVERRIDE || path.join(os.homedir(), '.blink');
+const BLINK_DIR = path.join(os.homedir(), '.blink');
 const CONFIG_FILE = path.join(BLINK_DIR, 'budget.json');
 const LOG_FILE = path.join(BLINK_DIR, 'spending-log.json');
 

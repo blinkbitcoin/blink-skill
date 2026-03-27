@@ -437,7 +437,7 @@ async function main() {
   const domain = extractDomain(canonicalUrl);
 
   // ── Domain allowlist check (L402 only) ──
-  if (!args.dryRun) {
+  if (!args.dryRun && !args.force) {
     const domainCheck = checkDomainAllowed(domain);
     if (!domainCheck.allowed) {
       const output = {
@@ -578,7 +578,7 @@ async function main() {
   }
 
   // ── Rolling budget check ──
-  if (satoshis !== null && !args.dryRun) {
+  if (satoshis !== null && !args.dryRun && !args.force) {
     const budgetResult = checkBudget(satoshis);
     if (!budgetResult.allowed) {
       const output = {

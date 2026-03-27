@@ -37,50 +37,6 @@ function cleanupTempDir() {
   }
 }
 
-/**
- * Load a fresh _budget module with paths redirected to the temp directory.
- * We override the module's path constants by monkey-patching after require.
- */
-function freshBudgetModule() {
-  const modPath = path.join(scriptsDir, '_budget.js');
-  delete require.cache[require.resolve(modPath)];
-  const mod = require(modPath);
-  // Redirect file paths to temp dir
-  const configFile = path.join(tmpDir, 'budget.json');
-  const logFile = path.join(tmpDir, 'spending-log.json');
-
-  // We need to patch the module internals. The module uses CONFIG_FILE and LOG_FILE
-  // constants. We'll create wrapper functions that use our temp paths.
-  return {
-    mod,
-    configFile,
-    logFile,
-    // Write config to temp location
-    writeConfig(config) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-      fs.writeFileSync(configFile, JSON.stringify(config, null, 2), 'utf8');
-    },
-    readConfig() {
-      try {
-        return JSON.parse(fs.readFileSync(configFile, 'utf8'));
-      } catch {
-        return {};
-      }
-    },
-    writeLog(entries) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-      fs.writeFileSync(logFile, JSON.stringify(entries, null, 2), 'utf8');
-    },
-    readLog() {
-      try {
-        return JSON.parse(fs.readFileSync(logFile, 'utf8'));
-      } catch {
-        return [];
-      }
-    },
-  };
-}
-
 // ── Save/restore env vars ────────────────────────────────────────────────────
 
 function saveEnv() {
@@ -99,6 +55,23 @@ function restoreEnv() {
     if (v !== undefined) process.env[k] = v;
     else delete process.env[k];
   }
+}
+
+/**
+ * Load a fresh _budget module with HOME redirected to tmpDir.
+ * This causes BLINK_DIR to resolve to tmpDir/.blink instead of ~/.blink.
+ */
+let origHomedir;
+function patchHomedir() {
+  origHomedir = os.homedir;
+  os.homedir = () => tmpDir;
+}
+function restoreHomedir() {
+  if (origHomedir) os.homedir = origHomedir;
+}
+function freshBudgetModule() {
+  delete require.cache[require.resolve(path.join(scriptsDir, '_budget.js'))];
+  return require(path.join(scriptsDir, '_budget.js'));
 }
 
 // ── sumSpending ──────────────────────────────────────────────────────────────
@@ -157,12 +130,12 @@ describe('getConfig', () => {
   before(() => {
     setupTempDir();
     saveEnv();
-    process.env._BLINK_DIR_OVERRIDE = tmpDir;
+    patchHomedir();
     delete require.cache[require.resolve(path.join(scriptsDir, '_budget.js'))];
     mod = require(path.join(scriptsDir, '_budget.js'));
   });
   after(() => {
-    delete process.env._BLINK_DIR_OVERRIDE;
+    restoreHomedir();
     restoreEnv();
     cleanupTempDir();
   });
@@ -222,12 +195,12 @@ describe('checkBudget', () => {
   before(() => {
     setupTempDir();
     saveEnv();
-    process.env._BLINK_DIR_OVERRIDE = tmpDir;
+    patchHomedir();
     delete require.cache[require.resolve(path.join(scriptsDir, '_budget.js'))];
     mod = require(path.join(scriptsDir, '_budget.js'));
   });
   after(() => {
-    delete process.env._BLINK_DIR_OVERRIDE;
+    restoreHomedir();
     restoreEnv();
     cleanupTempDir();
   });
@@ -351,12 +324,12 @@ describe('recordSpend and log pruning', () => {
   before(() => {
     setupTempDir();
     saveEnv();
-    process.env._BLINK_DIR_OVERRIDE = tmpDir;
+    patchHomedir();
     delete require.cache[require.resolve(path.join(scriptsDir, '_budget.js'))];
     mod = require(path.join(scriptsDir, '_budget.js'));
   });
   after(() => {
-    delete process.env._BLINK_DIR_OVERRIDE;
+    restoreHomedir();
     restoreEnv();
     cleanupTempDir();
   });
@@ -401,12 +374,12 @@ describe('getLog and resetLog', () => {
   before(() => {
     setupTempDir();
     saveEnv();
-    process.env._BLINK_DIR_OVERRIDE = tmpDir;
+    patchHomedir();
     delete require.cache[require.resolve(path.join(scriptsDir, '_budget.js'))];
     mod = require(path.join(scriptsDir, '_budget.js'));
   });
   after(() => {
-    delete process.env._BLINK_DIR_OVERRIDE;
+    restoreHomedir();
     restoreEnv();
     cleanupTempDir();
   });
@@ -457,12 +430,12 @@ describe('getStatus', () => {
   before(() => {
     setupTempDir();
     saveEnv();
-    process.env._BLINK_DIR_OVERRIDE = tmpDir;
+    patchHomedir();
     delete require.cache[require.resolve(path.join(scriptsDir, '_budget.js'))];
     mod = require(path.join(scriptsDir, '_budget.js'));
   });
   after(() => {
-    delete process.env._BLINK_DIR_OVERRIDE;
+    restoreHomedir();
     restoreEnv();
     cleanupTempDir();
   });
@@ -507,12 +480,12 @@ describe('writeConfig', () => {
   before(() => {
     setupTempDir();
     saveEnv();
-    process.env._BLINK_DIR_OVERRIDE = tmpDir;
+    patchHomedir();
     delete require.cache[require.resolve(path.join(scriptsDir, '_budget.js'))];
     mod = require(path.join(scriptsDir, '_budget.js'));
   });
   after(() => {
-    delete process.env._BLINK_DIR_OVERRIDE;
+    restoreHomedir();
     restoreEnv();
     cleanupTempDir();
   });
@@ -531,11 +504,11 @@ describe('writeConfig', () => {
 function setupCliTest() {
   setupTempDir();
   saveEnv();
-  process.env._BLINK_DIR_OVERRIDE = tmpDir;
+  patchHomedir();
 }
 
 function cleanupCliTest(origArgv) {
-  delete process.env._BLINK_DIR_OVERRIDE;
+  restoreHomedir();
   restoreEnv();
   process.argv = origArgv;
   cleanupTempDir();
