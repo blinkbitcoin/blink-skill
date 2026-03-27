@@ -1,7 +1,7 @@
 ---
 name: blink
 description: Bitcoin Lightning wallet for agents — balances, invoices, payments, BTC/USD swaps, QR codes, price conversion, transaction history, and L402 auto-pay client via the Blink API. All output is JSON.
-version: 1.4.6
+version: 1.4.7
 repository: https://github.com/blinkbitcoin/blink-skill
 metadata:
   oa:
@@ -1012,6 +1012,8 @@ Most scripts are stateless. The exception is `l402-pay`, which maintains a token
 - [payment-operations](references/payment-operations.md): send workflows, BTC vs USD wallet selection, fee probing, and safety guardrails.
 - [invoice-lifecycle](references/invoice-lifecycle.md): invoice creation, two-phase output parsing, monitoring strategies, QR generation, and expiration handling.
 - [swap-operations](references/swap-operations.md): BTC <-> USD internal conversion, quote/execute workflow, rounding behavior, and effective cost formulas.
+- [Blink Agent Playbook](https://dev.blink.sv/api/agent-playbook): Canonical AI agent API reference — order of operations, safety constraints, and verification checklist.
+- [llms.txt](https://dev.blink.sv/llms.txt): Machine-readable discovery metadata for AI agents (endpoints, source URLs, hard rules).
 
 ## Files
 
