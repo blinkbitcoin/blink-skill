@@ -2,14 +2,14 @@
 
 Bitcoin Lightning wallet for the command line — zero runtime npm dependencies, Node.js 18+ built-ins only.
 
-21 commands for wallet management, payments, invoices, swaps, and L402 paywall operations (both consumer and producer). Designed for humans and AI agents alike.
+22 commands for wallet management, payments, invoices, swaps, L402 paywall operations (both consumer and producer), and budget controls. Designed for humans and AI agents alike.
 
 ## Highlights
 
 - **Zero runtime dependencies** — only Node.js 18+ built-ins (`node:crypto`, `node:fs`, `node:util`, etc.)
-- **21 commands** — balance, payments, invoices, QR codes, swaps, L402 consumer + producer
+- **22 commands** — balance, payments, invoices, QR codes, swaps, L402 consumer + producer, budget controls
 - **L402 paywall toolkit** — create Lightning paywalls (producer) and pay them (consumer)
-- **207 tests**, 0 failing — `node:test` framework, no test library dependencies
+- **245 tests**, 0 failing — `node:test` framework, no test library dependencies
 - **JSON-first output** — structured JSON to stdout, status messages to stderr
 - **AI-agent native** — published on [ClawHub](https://clawhub.com) for OpenClaw/Hermes agents; also works with any LLM or human
 
@@ -79,6 +79,16 @@ blink l402-verify --token <macaroon>:<preimage>        # verify a client's payme
 | `blink l402-challenge --amount <sats>`  | Create an L402 payment challenge (invoice + signed macaroon) |
 | `blink l402-verify --token <mac>:<pre>` | Verify an L402 payment token (preimage + HMAC + caveats)     |
 
+### Budget Controls
+
+| Command                                              | Description                                                       |
+| ---------------------------------------------------- | ----------------------------------------------------------------- |
+| `blink budget status`                                | Show current spend vs rolling limits and remaining budget         |
+| `blink budget set --hourly <sats> --daily <sats>`    | Set per-hour and per-day spending limits                          |
+| `blink budget allowlist list\|add\|remove <domain>`  | Manage L402 domain allowlist                                      |
+| `blink budget log [--last N]`                        | Show recent spending entries                                      |
+| `blink budget reset`                                 | Clear spending history                                            |
+
 ## Installation
 
 ### Standalone
@@ -99,7 +109,7 @@ blink balance
 
 ### OpenClaw / Hermes Agents
 
-Published on ClawHub as `blink@1.5.0`. The full skill manifest and agent instructions are in [`blink/SKILL.md`](blink/SKILL.md).
+Published on ClawHub as `blink@1.6.0`. The full skill manifest and agent instructions are in [`blink/SKILL.md`](blink/SKILL.md).
 
 ### With blink-mcp
 
@@ -112,6 +122,9 @@ For MCP-native clients (Claude Desktop, Cursor, etc.), see [blink-mcp](https://g
 | `BLINK_API_KEY`       | Yes (wallet ops) | Blink API key (`blink_...`). Not needed for `price`.                                                        |
 | `BLINK_API_URL`       | No               | Override API endpoint. Default: `https://api.blink.sv/graphql`                                              |
 | `BLINK_L402_ROOT_KEY` | No               | 64-char hex root key for L402 producer HMAC signing. Auto-generated to `~/.blink/l402-root-key` if not set. |
+| `BLINK_BUDGET_HOURLY_SATS` | No          | Max sats spendable in rolling 1-hour window. |
+| `BLINK_BUDGET_DAILY_SATS` | No           | Max sats spendable in rolling 24-hour window. |
+| `BLINK_L402_ALLOWED_DOMAINS` | No        | Comma-separated domain allowlist for L402 auto-pay. |
 
 **Staging / testnet:**
 
@@ -122,7 +135,7 @@ export BLINK_API_URL="https://api.staging.blink.sv/graphql"
 ## Testing
 
 ```bash
-npm test    # 207 tests, node:test framework, zero test dependencies
+npm test    # 245 tests, node:test framework, zero test dependencies
 ```
 
 ## Documentation

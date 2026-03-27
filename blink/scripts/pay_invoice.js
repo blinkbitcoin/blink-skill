@@ -32,6 +32,9 @@ const {
   MUTATION_TIMEOUT_MS,
 } = require('./_blink_client');
 
+const { checkBudget, recordSpend } = require('./_budget');
+const { decodeBolt11AmountSats } = require('./l402_discover');
+
 const PAY_INVOICE_MUTATION = `
   mutation LnInvoicePaymentSend($input: LnInvoicePaymentInput!) {
     lnInvoicePaymentSend(input: $input) {
@@ -90,6 +93,17 @@ async function main() {
     throw new Error(`Insufficient balance: BTC wallet has 0 sats. Use --force to attempt anyway.`);
   }
 
+  // ── Budget check ──
+  const invoiceSats = decodeBolt11AmountSats(paymentRequest);
+  if (invoiceSats !== null && !force) {
+    const budgetResult = checkBudget(invoiceSats);
+    if (!budgetResult.allowed) {
+      throw new Error(
+        `Budget exceeded: ${budgetResult.reason} Use --force to override.`,
+      );
+    }
+  }
+
   const input = {
     walletId: wallet.id,
     paymentRequest,
@@ -133,8 +147,14 @@ async function main() {
 
   if (result.status === 'SUCCESS') {
     console.error('Payment successful!');
+    if (invoiceSats !== null) {
+      try { recordSpend({ sats: invoiceSats, command: 'pay-invoice', domain: null }); } catch { /* non-fatal */ }
+    }
   } else if (result.status === 'PENDING') {
     console.error('Payment is pending...');
+    if (invoiceSats !== null) {
+      try { recordSpend({ sats: invoiceSats, command: 'pay-invoice', domain: null }); } catch { /* non-fatal */ }
+    }
   } else if (result.status === 'ALREADY_PAID') {
     console.error('Invoice was already paid.');
   } else {

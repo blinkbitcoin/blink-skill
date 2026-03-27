@@ -57,6 +57,8 @@ const {
 
 const { saveToken, getToken } = require('./l402_store');
 
+const { checkBudget, checkDomainAllowed, recordSpend } = require('./_budget');
+
 // ── GraphQL mutation (same as pay_invoice.js) ─────────────────────────────────
 
 const PAY_INVOICE_MUTATION = `
@@ -434,6 +436,23 @@ async function main() {
 
   const domain = extractDomain(canonicalUrl);
 
+  // ── Domain allowlist check (L402 only) ──
+  if (!args.dryRun) {
+    const domainCheck = checkDomainAllowed(domain);
+    if (!domainCheck.allowed) {
+      const output = {
+        event: 'l402_domain_blocked',
+        url: args.url,
+        canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
+        domain,
+        allowlist: domainCheck.allowlist,
+        message: `Domain "${domain}" is not in the L402 allowlist. Add with: blink budget allowlist add ${domain}`,
+      };
+      console.log(JSON.stringify(output, null, 2));
+      process.exit(1);
+    }
+  }
+
   // ── Check token store first ──
   // Skip cache on --dry-run: dry-run must always probe the server fresh so it
   // can report the current invoice price, even if a cached token exists.
@@ -558,7 +577,24 @@ async function main() {
     console.error(`Payment required: ${satoshis} sats`);
   }
 
-  // ── Budget check ──
+  // ── Rolling budget check ──
+  if (satoshis !== null && !args.dryRun) {
+    const budgetResult = checkBudget(satoshis);
+    if (!budgetResult.allowed) {
+      const output = {
+        event: 'l402_budget_exceeded',
+        url: args.url,
+        canonicalUrl: canonicalUrl !== args.url ? canonicalUrl : undefined,
+        satoshis,
+        ...budgetResult,
+        message: budgetResult.reason,
+      };
+      console.log(JSON.stringify(output, null, 2));
+      process.exit(1);
+    }
+  }
+
+  // ── Per-request max-amount check ──
   if (args.maxAmount !== null && satoshis !== null && satoshis > args.maxAmount) {
     const output = {
       event: 'l402_budget_exceeded',
@@ -574,6 +610,7 @@ async function main() {
 
   // ── Dry-run: report price and exit ──
   if (args.dryRun) {
+    const budgetInfo = satoshis !== null ? checkBudget(satoshis) : null;
     const output = {
       event: 'l402_dry_run',
       url: args.url,
@@ -584,6 +621,16 @@ async function main() {
       satoshisFormatted: satoshis !== null ? `${satoshis} sats` : null,
       maxAmount: args.maxAmount,
       withinBudget: args.maxAmount !== null && satoshis !== null ? satoshis <= args.maxAmount : null,
+      budget: budgetInfo
+        ? {
+            allowed: budgetInfo.allowed,
+            hourlySpent: budgetInfo.hourlySpent,
+            dailySpent: budgetInfo.dailySpent,
+            hourlyLimit: budgetInfo.hourlyLimit,
+            dailyLimit: budgetInfo.dailyLimit,
+            effectiveRemaining: budgetInfo.effectiveRemaining,
+          }
+        : null,
       message: 'Dry-run: would pay this invoice to access the resource. No payment made.',
       ...(challenge.offers ? { offers: challenge.offers } : {}),
     };
@@ -689,6 +736,15 @@ async function main() {
       console.error(`Token cached for ${domain}.`);
     } catch (err) {
       console.error(`Warning: could not save token to store: ${err.message}`);
+    }
+  }
+
+  // ── Record spend in budget log ──
+  if (satoshis !== null) {
+    try {
+      recordSpend({ sats: satoshis, command: 'l402-pay', domain });
+    } catch (err) {
+      console.error(`Warning: could not record spend: ${err.message}`);
     }
   }
 

@@ -34,6 +34,8 @@ const {
   MUTATION_TIMEOUT_MS,
 } = require('./_blink_client');
 
+const { checkBudget, recordSpend } = require('./_budget');
+
 const PAY_LN_ADDRESS_MUTATION = `
   mutation LnAddressPaymentSend($input: LnAddressPaymentSendInput!) {
     lnAddressPaymentSend(input: $input) {
@@ -96,6 +98,16 @@ async function main() {
     `Sending ${amountSats} sats to ${lnAddress} from ${walletCurrency} wallet ${wallet.id} (balance: ${formatBalance(wallet)})`,
   );
 
+  // ── Budget check ──
+  if (!dryRun && !force) {
+    const budgetResult = checkBudget(amountSats);
+    if (!budgetResult.allowed) {
+      throw new Error(
+        `Budget exceeded: ${budgetResult.reason} Use --force to override.`,
+      );
+    }
+  }
+
   // ── Dry-run: resolve everything, show details, exit without sending ──
   if (dryRun) {
     console.error('[DRY RUN] Would send payment — no funds will be transferred.');
@@ -149,8 +161,10 @@ async function main() {
 
   if (result.status === 'SUCCESS') {
     console.error('Payment successful!');
+    try { recordSpend({ sats: amountSats, command: 'pay-lnaddress', domain: null }); } catch { /* non-fatal */ }
   } else if (result.status === 'PENDING') {
     console.error('Payment is pending...');
+    try { recordSpend({ sats: amountSats, command: 'pay-lnaddress', domain: null }); } catch { /* non-fatal */ }
   } else {
     console.error(`Payment status: ${result.status}`);
   }

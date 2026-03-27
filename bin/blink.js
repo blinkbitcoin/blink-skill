@@ -687,6 +687,48 @@ commands['l402-verify'] = {
   },
 };
 
+commands.budget = {
+  description: 'Manage spending limits, spending log, and L402 domain allowlist',
+  args: [
+    { name: 'subcommand', required: true, description: 'status | set | log | reset | allowlist' },
+    { name: 'args', required: false, variadic: true, description: 'Subcommand arguments' },
+  ],
+  options: {
+    hourly: { type: 'string' },
+    daily: { type: 'string' },
+    off: { type: 'boolean', default: false },
+    last: { type: 'string' },
+    expired: { type: 'boolean', default: false },
+  },
+  optMeta: {
+    hourly: { description: 'Hourly spending limit in sats (with set)', valueName: 'sats' },
+    daily: { description: 'Daily spending limit in sats (with set)', valueName: 'sats' },
+    off: { description: 'Remove all spending limits (with set)' },
+    last: { description: 'Number of log entries to show (with log)', valueName: 'n' },
+  },
+  examples: [
+    'blink budget status',
+    'blink budget set --hourly 1000 --daily 5000',
+    'blink budget set --off',
+    'blink budget log --last 10',
+    'blink budget reset',
+    'blink budget allowlist list',
+    'blink budget allowlist add satring.com',
+    'blink budget allowlist remove satring.com',
+  ],
+  action: async (pos, opts) => {
+    const argv = [...pos.map(String)];
+    if (opts.hourly) argv.push('--hourly', opts.hourly);
+    if (opts.daily) argv.push('--daily', opts.daily);
+    if (opts.off) argv.push('--off');
+    if (opts.last) argv.push('--last', opts.last);
+    if (opts.expired) argv.push('--expired');
+    setProcessArgv(argv);
+    const { main } = require(path.join(scriptsDir, 'budget.js'));
+    main();
+  },
+};
+
 // ── Help formatting ──────────────────────────────────────────────────────────
 
 function formatMainHelp() {
